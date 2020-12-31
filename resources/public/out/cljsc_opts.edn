@@ -1,0 +1,1 @@
+{:main game.client.core, :asset-path "out", :output-to "resources/public/game.js", :output-dir "resources/public/out", :optimizations :none, :source-map-timestamp true, :preloads [figwheel.connect], :external-config #:figwheel{:config {:build-id "dev", :websocket-url "ws://localhost:3449/figwheel-ws"}}}
