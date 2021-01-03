@@ -1,5 +1,6 @@
 (ns game.units.sprite-sample
-  (:require [game.units.sprites :as sprites]))
+  (:require [game.units.sprites :as sprites]
+            [hiccup.core :as hiccup]))
 
 (def ships
   [

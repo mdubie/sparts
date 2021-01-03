@@ -2,10 +2,9 @@
   :dependencies [[org.clojure/clojure "1.10.1"]
                  [org.clojure/clojurescript "1.10.741"]
                  [hiccup "1.0.5"]
-                 ;; [dali "1.0.1"]
                  [tikkba "0.6.0"]
-                 ;; [analemma "1.1.0"]
-                 [quil "3.1.0"]]
+                 [quil "3.1.0"]
+                 [clojure.java-time "0.3.2"]]
   :plugins [[lein-figwheel "0.5.18"]]
   :repl-options {:init-ns game.core}
   :figwheel {:nrepl-port 7888}
