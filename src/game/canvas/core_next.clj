@@ -28,6 +28,14 @@
    (- y2 y1)
    (- x2 x1)))
 
+;; (defn theta->unit-vector
+;;   [theta]
+;;   [(Math/cos theta) (- (Math/sin theta))])
+
+(defn vector->theta
+  [[x y]]
+  (Math/atan2 y x))
+
 ;; ship control
 
 ;; (defn pid
@@ -57,27 +65,90 @@
 (defn next-tick-ship-alpha
   [game-state ship dt-millis]
   (let [
-        theta-sv (s1+s2->theta (:s ship) (:target-s @game-state))
-        _ (prn theta-sv)
+
 
         theta-pv (- (-> ship :alpha-controller :theta-pid :sv)
                     (-> ship :theta))
 
         omega-pv (- (-> ship :alpha-controller :omega-pid :sv)
-                    (-> ship :omega))
-        alpha-unbounded (+ (pid-output (-> ship :alpha-controller :theta-pid))
-                           (pid-output (-> ship :alpha-controller :omega-pid)))]
+                    (-> ship :omega))]
     (-> ship
-        (assoc-in [:alpha-controller :theta-pid :sv] theta-sv)
+
+        ;; point at target-s
+        ;; (assoc-in [:alpha-controller :theta-pid :sv]
+        ;;           (s1+s2->theta (:s ship)
+        ;;                         (:target-s @game-state)))
+
         (update-in [:alpha-controller :theta-pid] pid-next-tick theta-pv dt-millis)
         (update-in [:alpha-controller :omega-pid] pid-next-tick omega-pv dt-millis)
-        (assoc :alpha (-> alpha-unbounded
-                          (min 1)
-                          (max -1))))))
+        (assoc :alpha (+ (pid-output (-> ship :alpha-controller :theta-pid))
+                         (pid-output (-> ship :alpha-controller :omega-pid)))))))
 
-(defn next-tick-ship-control-inputs
+;; cap ax ay on magintude
+
+(defn next-tick-ship-a
   [game-state ship dt-millis]
-  (next-tick-ship-alpha game-state ship dt-millis))
+  (let [
+        [sx sy] (:s ship)
+        [vx vy] (:v ship)
+        [sx-sv sy-sv] (:target-s @game-state)
+
+        sx-pv (- (-> ship :ax-controller :dx-pid :sv)
+                 sx)
+        vx-pv (- (-> ship :ax-controller :vx-pid :sv)
+                 vx)
+        ax-unbounded (+ (pid-output (-> ship :ax-controller :dx-pid))
+                        (pid-output (-> ship :ax-controller :vx-pid)))
+
+        sy-pv (- (-> ship :ay-controller :dy-pid :sv)
+                 sy)
+        vy-pv (- (-> ship :ay-controller :vy-pid :sv)
+                 vy)
+        ay-unbounded (+ (pid-output (-> ship :ay-controller :dy-pid))
+                        (pid-output (-> ship :ay-controller :vy-pid)))
+
+        scalar* (/ (Math/sqrt (+ (Math/pow ax-unbounded 2)
+                                 (Math/pow ay-unbounded 2)))
+                   10)
+        scalar (if (zero? scalar*)
+                 1 scalar*)
+
+
+        ;; a-scaled-vector [(/ ax-unbounded scalar)
+        ;;                  (/ ay-unbounded scalar)]
+
+        a-scaled-vector [ax-unbounded
+                         ay-unbounded]]
+
+    ;; make this a unit vector and bound it
+
+    (-> ship
+
+        ;; accelerate toward target s
+        (assoc-in [:alpha-controller :theta-pid :sv] (vector->theta a-scaled-vector))
+
+        (assoc-in [:ax-controller :dx-pid :sv] sx-sv)
+        (assoc-in [:ay-controller :dy-pid :sv] sy-sv)
+
+        (update-in [:ax-controller :dx-pid] pid-next-tick sx-pv dt-millis)
+        (update-in [:ax-controller :vx-pid] pid-next-tick vx-pv dt-millis)
+
+        (update-in [:ay-controller :dy-pid] pid-next-tick sy-pv dt-millis)
+        (update-in [:ay-controller :vy-pid] pid-next-tick vy-pv dt-millis)
+
+        ;; accelerate if ships facing the right direction
+        (update :a (fn [_ ship-theta]
+                     (let [a-vector (vector->theta a-scaled-vector)
+                           vector-diff (Math/abs (- a-vector ship-theta))]
+                       (if (< vector-diff (/ Math/PI 25))
+                         a-scaled-vector
+                         [0 0])))
+                   (:theta ship)))))
+
+(comment
+  (def stop (start))
+
+  (stop))
 
 ;; game state
 
@@ -95,6 +166,7 @@
               (+ sy (* 1.0 dt-s vy))])
         v* (let [[vx vy] v
                  [ax ay] a]
+             ;; do unit vector things to a based upon theta
              [(+ vx (* 1.0 dt-s ax))
               (+ vy (* 1.0 dt-s ay))])
         a* a]
@@ -114,7 +186,11 @@
                                       (into [])))
   (swap! game-state assoc :ships (->> (:ships @game-state)
                                       (map (fn [ship]
-                                             (next-tick-ship-control-inputs game-state ship dt-millis)))
+                                             (next-tick-ship-alpha game-state ship dt-millis)))
+                                      (into [])))
+  (swap! game-state assoc :ships (->> (:ships @game-state)
+                                      (map (fn [ship]
+                                             (next-tick-ship-a game-state ship dt-millis)))
                                       (into []))))
 
 (defn update-game-state!
@@ -156,12 +232,12 @@
    :alpha 0
    :alpha-controller {:theta-pid {:kp 100
                                   :ki 0
-                                  :kd 1
+                                  :kd 50
                                   :p 0
                                   :i 0
                                   :d 0
                                   :sv 0}
-                      :omega-pid {:kp 100
+                      :omega-pid {:kp 50
                                   :ki 0
                                   :kd 1
                                   :p 0
@@ -174,6 +250,81 @@
    :v [0 0]
    :a [0 0]})
 
+(def move-to-location-ship
+  {:id 1729559904
+
+   :angular-mass 100
+   :theta 0
+   :omega 0
+   :alpha 0
+   :alpha-controller {:theta-pid {:kp 10
+                                  :ki 0
+                                  :kd 100
+                                  :p 0
+                                  :i 0
+                                  :d 0
+                                  :sv 0}
+                      :omega-pid {:kp 6
+                                  :ki 0
+                                  :kd 0
+                                  :p 0
+                                  :i 0
+                                  :d 0
+                                  :sv 0}}
+
+   :mass 1000000000
+   :s [100 100]
+   :v [0 0]
+   :a [0 0]
+
+   :ax-controller {:dx-pid {:kp 1
+                            :ki 0
+                            :kd 0.5
+                            :p 0
+                            :i 0
+                            :d 0
+                            :sv 0}
+                   :vx-pid {:kp 3
+                            :ki 0
+                            :kd 1
+                            :p 0
+                            :i 0
+                            :d 0
+                            :sv 0}}
+   :ay-controller {:dy-pid {:kp 1
+                            :ki 0
+                            :kd 0.5
+                            :p 0
+                            :i 0
+                            :d 0
+                            :sv 0}
+                   :vy-pid {:kp 3
+                            :ki 0
+                            :kd 1
+                            :p 0
+                            :i 0
+                            :d 0
+                            :sv 0}}})
+
+;; unit vector of ax ay is the theta for move to
+;; combine these controllers into polar coords?
+
+;; move to location
+;; a to single number that translate to v based upon theta
+
+;; theta-controller
+  ;; if a-controller is positive face toward target-s
+  ;; if a-controller is negative face away target-s
+
+;; a-controller
+  ;; distance 0
+  ;; velocity 0
+
+;; if facing the right way & number is positive then set a
+
+;; movement-controller
+  ;;
+
 (comment
   (def stop (start))
 
@@ -185,7 +336,8 @@
          :ships [
                  ;; rotation-acceleration-ship
                  ;; vertical-acceleration-ship
-                 rotate-to-position-ship]}))
+                 ;; rotate-to-position-ship
+                 move-to-location-ship]}))
 
 ;; input
 
@@ -221,7 +373,14 @@
                   (int (+ sx (* -1 (/ w 2))))
                   (int (+ sy (* -1 (/ h 2))))
                   nil)
-      (.dispose))))
+      (.dispose))
+    (let [[ax ay] a]
+      (when (or (not (zero? ax))
+                (not (zero? ay)))
+        (doto (.create g)
+          (.setColor Color/ORANGE)
+          (.drawRect sx sy 50 50)
+          (.dispose))))))
 
 (defn render-ships
   [game-state g]
@@ -320,3 +479,7 @@
 
 ;; click on screen have unit look at
 ;; think about linear pid
+;; ship will move to selected location
+;; how to do accelerated towards point?
+;; when to flip?
+
